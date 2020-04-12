@@ -1,0 +1,49 @@
+#!/bin/bash
+#
+#Removes 100% downloaded torrents (with data) from Sonarr and Radarr (or any) directories, after a settable period of seeding
+
+#transmission connection parameters:
+Username="your_username"
+Password="your_password"
+Host="transmission_ip_address" #localhos?
+Port="transmission_port" #default is 9091
+SeedingLeadTime="200000"  #seeding leadtime in seconds, after which you want the torrent to be removed 
+LogFile="rmver.log"
+
+#Radarr, Sonarr or any directories (only the final part of the path e.g. for /mnt/storage/download/complete/Sonarr put only "Sonarr")
+Sonarr_dir="Sonarr"
+Radarr_dir="Radarr"
+Custom_dir1=""
+Custom_dir2=""
+Custom_dir3=""
+#############################################################################
+
+TRemote="transmission-remote $Host:$Port --auth $Username:$Password" #bin with connection options
+
+exec &> >(tee -a "$LogFile") #redirect stdout and stderr to log file
+
+#get the id list of torrents from transmission
+TList="$($TRemote --list | sed -e '1d;$d' | awk '{print $1}'| sed -e 's/[^0-9]*//g')"
+
+#for each torrent, get info (status,if Radarr or Sonarr downloads, seeding time)
+for TID in $TList; do
+  TInfo=`$TRemote -t $TID --info`
+  TDwlPath=`echo "$TInfo" | grep "Location: *" | sed 's/Location\:\s//i' | awk '{$1=$1};1'`
+  TDirectory=`basename $TDwlPath`
+  TStatus=`echo "$TInfo" | grep "Percent Done: *" | sed 's/Location\:\s//i' | awk '{$1=$1};1'`
+  TSeedingTime=`echo "$TInfo" | grep "Seeding Time: *" | awk -F"[()]" '{print $2}' | sed 's/\sseconds//i'`
+
+#if the torrent is Radarr or Sonarr torrent, is 100% downloaded and the seeding time is > SeedingLeadTime. deletes the torrent and its files
+  case "$TDirectory" in 
+    "$Sonarr_dir" | "$Radarr_dir" | "$Custom_dir1" | "$Custom_dir2" | "$Custom_dir3")
+
+    if [[ "$TStatus" == "Percent Done: 100%" ]] && [[ "$TSeedingTime" -gt "$SeedingLeadTime" ]]; then 
+        $TRemote -t $TID --remove-and-delete
+        Date=`date +"%b %d %H:%M:%S"`
+        echo "$Date torrent with ID $TID has been removed"
+    fi
+    
+  esac
+done
+    
+        
